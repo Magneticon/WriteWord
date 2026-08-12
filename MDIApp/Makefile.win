@@ -1,0 +1,33 @@
+# Project: WriteWord
+# Makefile created by Dev-C++ 4.9.9.2
+
+CPP  = g++.exe
+CC   = gcc.exe
+WINDRES = windres.exe
+RES  = MdiApp_private.res
+OBJ  = mdi_unit.o $(RES)
+LINKOBJ  = mdi_unit.o $(RES)
+LIBS =  -L"C:/WINDOWS/DevCpp/lib" -mwindows -lcomctl32  
+INCS =  -I"C:/WINDOWS/DevCpp/include" 
+CXXINCS =  -I"C:/WINDOWS/DevCpp/lib/gcc/mingw32/3.4.2/include"  -I"C:/WINDOWS/DevCpp/include/c++/3.4.2/backward"  -I"C:/WINDOWS/DevCpp/include/c++/3.4.2/mingw32"  -I"C:/WINDOWS/DevCpp/include/c++/3.4.2"  -I"C:/WINDOWS/DevCpp/include" 
+BIN  = WriteWord.exe
+CXXFLAGS = $(CXXINCS)  
+CFLAGS = $(INCS)  
+RM = rm -f
+
+.PHONY: all all-before all-after clean clean-custom
+
+all: all-before WriteWord.exe all-after
+
+
+clean: clean-custom
+	${RM} $(OBJ) $(BIN)
+
+$(BIN): $(OBJ)
+	$(CPP) $(LINKOBJ) -o "WriteWord.exe" $(LIBS)
+
+mdi_unit.o: mdi_unit.c
+	$(CPP) -c mdi_unit.c -o mdi_unit.o $(CXXFLAGS)
+
+MdiApp_private.res: MdiApp_private.rc mdi_res.rc 
+	$(WINDRES) -i MdiApp_private.rc --input-format=rc -o MdiApp_private.res -O coff 
