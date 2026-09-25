@@ -4,3 +4,23 @@ Simple MDI Notepad. Allows for multiple notepad windows in one main container, o
 Created in Dev-C++ 4.9.9.2.
 
 <img width="1440" height="780" alt="WRITEWORD" src="https://github.com/user-attachments/assets/93ca77fc-222d-44ed-a176-c466c845b2ca" />
+
+## Editing large documents
+
+WriteWord uses the Windows Rich Edit 2.0 control in **plain-text mode**.
+It streams text files when opening and saving, so files no longer need a
+second document-sized buffer. The old EDIT control's small default input
+limit is removed; the remaining upper bound is the Rich Edit control's
+signed 32-bit text range (approximately 2 GB of text) and available system
+memory. Files larger than the supported range are rejected, not truncated.
+
+**Ctrl+A** or **Edit > Select All** selects all the text in the active MDI
+document. Each MDI window has its own independent selection.
+
+### Manual checks
+
+1. Open a document larger than 64 KB, edit it, save it, then reopen it.
+2. With two document windows open, press Ctrl+A in one; only its text should
+   be selected. Check Edit > Select All and Ctrl+C after selecting.
+3. Save and reopen an empty document, then repeat with a multiline document.
+4. Verify the original Cut, Copy, Paste, Undo and MDI window commands.

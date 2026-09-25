@@ -1,5 +1,6 @@
 #include <windows.h>
 #include <commctrl.h>
+#include <richedit.h>
 
 #include "mdi_unit.h"
 
@@ -21,32 +22,68 @@ HINSTANCE g_hInst;
 HWND g_hMDIClient, g_hStatusBar, g_hToolBar;
 HWND g_hMainWindow;
 
+/*
+ * Rich Edit streams documents in small chunks. This avoids the old EDIT
+ * control's text limit and avoids a second document-sized allocation.
+ * File contents remain plain text in the system ANSI code page, as before.
+ */
+static DWORD CALLBACK ReadTextStream(DWORD_PTR cookie, LPBYTE buffer,
+   LONG cb, LONG *readCount)
+{
+   DWORD count = 0;
+   *readCount = 0;
+   if(!ReadFile((HANDLE)cookie, buffer, (DWORD)cb, &count, NULL))
+   {
+      DWORD error = GetLastError();
+      return error ? error : ERROR_READ_FAULT;
+   }
+   *readCount = (LONG)count;
+   return 0;
+}
+
+static DWORD CALLBACK WriteTextStream(DWORD_PTR cookie, LPBYTE buffer,
+   LONG cb, LONG *writtenCount)
+{
+   DWORD total = 0;
+   *writtenCount = 0;
+   while(total < (DWORD)cb)
+   {
+      DWORD count = 0;
+      if(!WriteFile((HANDLE)cookie, buffer + total,
+         (DWORD)cb - total, &count, NULL))
+      {
+         DWORD error = GetLastError();
+         return error ? error : ERROR_WRITE_FAULT;
+      }
+      if(count == 0)
+         return ERROR_WRITE_FAULT;
+      total += count;
+      *writtenCount = (LONG)total;
+   }
+   return 0;
+}
+
 BOOL LoadFile(HWND hEdit, LPSTR pszFileName)
 {
-   HANDLE hFile;
+   HANDLE hFile = CreateFile(pszFileName, GENERIC_READ, FILE_SHARE_READ,
+      NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
    BOOL bSuccess = FALSE;
-
-   hFile = CreateFile(pszFileName, GENERIC_READ, FILE_SHARE_READ, NULL,
-      OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0);
    if(hFile != INVALID_HANDLE_VALUE)
    {
-      DWORD dwFileSize;
-      dwFileSize = GetFileSize(hFile, NULL);
-      if(dwFileSize != 0xFFFFFFFF)
+      LARGE_INTEGER fileSize;
+      /*
+       * Rich Edit uses signed 32-bit character positions. Reject files
+       * outside that range rather than silently displaying a truncated file.
+       */
+      if(GetFileSizeEx(hFile, &fileSize) && fileSize.HighPart == 0 &&
+         fileSize.LowPart <= 0x7FFFFFFEUL)
       {
-         LPSTR pszFileText;
-         pszFileText = LPSTR(GlobalAlloc(GPTR, dwFileSize + 1));
-         if(pszFileText != NULL)
-         {
-            DWORD dwRead;
-            if(ReadFile(hFile, pszFileText, dwFileSize, &dwRead, NULL))
-            {
-               pszFileText[dwFileSize] = 0; // Null terminator
-               if(SetWindowText(hEdit, pszFileText))
-                  bSuccess = TRUE; // It worked!
-            }
-            GlobalFree(pszFileText);
-         }
+         EDITSTREAM stream;
+         ZeroMemory(&stream, sizeof(stream));
+         stream.dwCookie = (DWORD_PTR)hFile;
+         stream.pfnCallback = ReadTextStream;
+         SendMessage(hEdit, EM_STREAMIN, SF_TEXT, (LPARAM)&stream);
+         bSuccess = (stream.dwError == 0);
       }
       CloseHandle(hFile);
    }
@@ -55,31 +92,20 @@ BOOL LoadFile(HWND hEdit, LPSTR pszFileName)
 
 BOOL SaveFile(HWND hEdit, LPSTR pszFileName)
 {
-   HANDLE hFile;
+   HANDLE hFile = CreateFile(pszFileName, GENERIC_WRITE, 0, NULL,
+      CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
    BOOL bSuccess = FALSE;
-
-   hFile = CreateFile(pszFileName, GENERIC_WRITE, 0, NULL,
-      CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, 0);
    if(hFile != INVALID_HANDLE_VALUE)
    {
-      DWORD dwTextLength;
-      dwTextLength = GetWindowTextLength(hEdit);
-      if(dwTextLength > 0)// No need to bother if there's no text.
-      {
-         LPSTR pszText;
-         pszText = LPSTR(GlobalAlloc(GPTR, dwTextLength + 1));
-         if(pszText != NULL)
-         {
-            if(GetWindowText(hEdit, pszText, dwTextLength + 1))
-            {
-               DWORD dwWritten;
-               if(WriteFile(hFile, pszText, dwTextLength, &dwWritten, NULL))
-                  bSuccess = TRUE;
-            }
-            GlobalFree(pszText);
-         }
-      }
-      CloseHandle(hFile);
+      EDITSTREAM stream;
+      ZeroMemory(&stream, sizeof(stream));
+      stream.dwCookie = (DWORD_PTR)hFile;
+      stream.pfnCallback = WriteTextStream;
+      SendMessage(hEdit, EM_STREAMOUT, SF_TEXT, (LPARAM)&stream);
+      bSuccess = (stream.dwError == 0);
+      /* An empty document must also be saved as a valid, empty file. */
+      if(!CloseHandle(hFile))
+         bSuccess = FALSE;
    }
    return bSuccess;
 }
@@ -119,8 +145,18 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 {
    MSG  Msg;
    WNDCLASSEX WndClassEx;
+   HACCEL hAccel;
+   HMODULE hRichEdit;
 
    InitCommonControls();
+   hRichEdit = LoadLibrary("RICHED20.DLL");
+   if(!hRichEdit)
+   {
+      MessageBox(NULL, "Windows Rich Edit 2.0 is required.",
+         "WriteWord", MB_OK | MB_ICONEXCLAMATION);
+      return -1;
+   }
+   hAccel = LoadAccelerators(hInstance, "MAINACCEL");
 
    g_hInst = hInstance;
 
@@ -171,7 +207,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 
    while(GetMessage(&Msg, NULL, 0, 0))
    {
-      if (!TranslateMDISysAccel(g_hMDIClient, &Msg))
+      if (!TranslateAccelerator(g_hMainWindow, hAccel, &Msg) &&
+          !TranslateMDISysAccel(g_hMDIClient, &Msg))
       {
          TranslateMessage(&Msg);
          DispatchMessage(&Msg);
@@ -179,6 +216,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
    }
  //  WndProc(g_hMainWindow, WM_COMMAND, CM_FILE_NEW, 0);
 //   SendMessage(g_hMainWindow, WM_COMMAND, CM_FILE_NEW, 0);
+   FreeLibrary(hRichEdit);
    return Msg.wParam;
 }
 
@@ -418,11 +456,16 @@ LRESULT CALLBACK MDIChildWndProc(HWND hwnd, UINT Message, WPARAM wParam,
          char szFileName[MAX_PATH];
          HWND hEdit;
 
-         hEdit = CreateWindowEx(WS_EX_CLIENTEDGE, "EDIT", "",
+         hEdit = CreateWindowEx(WS_EX_CLIENTEDGE, "RichEdit20A", "",
             WS_CHILD | WS_VISIBLE | WS_VSCROLL | ES_MULTILINE |
-               ES_WANTRETURN | ES_AUTOVSCROLL | ES_NOHIDESEL,
+               ES_WANTRETURN | ES_AUTOVSCROLL | ES_NOHIDESEL |
+               ES_DISABLENOSCROLL,
             CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT,
             hwnd, (HMENU)IDC_CHILD_EDIT, g_hInst, NULL);
+         if(!hEdit)
+            return -1;
+         /* Use the largest supported signed 32-bit character range. */
+         SendMessage(hEdit, EM_EXLIMITTEXT, 0, (LPARAM)0x7FFFFFFEUL);
  
         const INT ITEM_POINT_SIZE = 14;
         HDC hdc = GetDC(hwnd);
@@ -430,7 +473,8 @@ LRESULT CALLBACK MDIChildWndProc(HWND hwnd, UINT Message, WPARAM wParam,
         HFONT hFont = CreateFont(nFontHeight, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
                                  CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_DONTCARE, TEXT("MS Shell Dlg"));
         SendMessage(hEdit, WM_SETFONT,
-            (WPARAM)hFont, MAKELPARAM(TRUE, 0)); 
+            (WPARAM)hFont, MAKELPARAM(TRUE, 0));
+        ReleaseDC(hwnd, hdc); 
 
          GetWindowText(hwnd, szFileName, MAX_PATH);
          if(*szFileName != '[')
@@ -529,6 +573,15 @@ LRESULT CALLBACK MDIChildWndProc(HWND hwnd, UINT Message, WPARAM wParam,
             return 0;
             case CM_EDIT_UNDO:
                SendDlgItemMessage(hwnd, IDC_CHILD_EDIT, EM_UNDO, 0, 0);
+            break;
+            case CM_EDIT_SELECTALL:
+            {
+               CHARRANGE range;
+               range.cpMin = 0;
+               range.cpMax = -1;
+               SendDlgItemMessage(hwnd, IDC_CHILD_EDIT,
+                  EM_EXSETSEL, 0, (LPARAM)&range);
+            }
             break;
             case CM_EDIT_CUT:
                SendDlgItemMessage(hwnd, IDC_CHILD_EDIT, WM_CUT, 0, 0);
