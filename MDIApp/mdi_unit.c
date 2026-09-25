@@ -22,6 +22,54 @@ HINSTANCE g_hInst;
 HWND g_hMDIClient, g_hStatusBar, g_hToolBar;
 HWND g_hMainWindow;
 
+/* Keep the frame menu, toolbar and status bar in sync with the active MDI
+ * document. During the first child's WM_MDIACTIVATE, g_hMainWindow has
+ * not been assigned yet because the frame is still inside CreateWindowEx.
+ * Accept the actual frame HWND instead of relying on the global.
+ */
+static void UpdateDocumentControls(HWND hFrame, HWND hActive)
+{
+   HMENU hMenu = GetMenu(hFrame);
+   HMENU hFileMenu;
+   BOOL enabled = (hActive != NULL && IsWindow(hActive));
+   char fileName[MAX_PATH];
+
+   if(hMenu)
+   {
+      EnableMenuItem(hMenu, 1,
+         MF_BYPOSITION | (enabled ? MF_ENABLED : MF_GRAYED));
+      EnableMenuItem(hMenu, 2,
+         MF_BYPOSITION | (enabled ? MF_ENABLED : MF_GRAYED));
+
+      hFileMenu = GetSubMenu(hMenu, 0);
+      if(hFileMenu)
+      {
+         EnableMenuItem(hFileMenu, CM_FILE_SAVE,
+            MF_BYCOMMAND | (enabled ? MF_ENABLED : MF_GRAYED));
+         EnableMenuItem(hFileMenu, CM_FILE_SAVEAS,
+            MF_BYCOMMAND | (enabled ? MF_ENABLED : MF_GRAYED));
+      }
+      DrawMenuBar(hFrame);
+   }
+
+   if(g_hToolBar)
+   {
+      SendMessage(g_hToolBar, TB_ENABLEBUTTON, CM_FILE_SAVE, MAKELONG(enabled, 0));
+      SendMessage(g_hToolBar, TB_ENABLEBUTTON, CM_EDIT_UNDO, MAKELONG(enabled, 0));
+      SendMessage(g_hToolBar, TB_ENABLEBUTTON, CM_EDIT_CUT, MAKELONG(enabled, 0));
+      SendMessage(g_hToolBar, TB_ENABLEBUTTON, CM_EDIT_COPY, MAKELONG(enabled, 0));
+      SendMessage(g_hToolBar, TB_ENABLEBUTTON, CM_EDIT_PASTE, MAKELONG(enabled, 0));
+   }
+
+   if(g_hStatusBar)
+   {
+      fileName[0] = 0;
+      if(enabled)
+         GetWindowText(hActive, fileName, MAX_PATH);
+      SendMessage(g_hStatusBar, SB_SETTEXT, 0, (LPARAM)fileName);
+   }
+}
+
 /*
  * Rich Edit streams documents in small chunks. This avoids the old EDIT
  * control's text limit and avoids a second document-sized allocation.
@@ -207,6 +255,23 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 
    ShowWindow(g_hMainWindow, nCmdShow);
    UpdateWindow(g_hMainWindow);
+
+   /*
+    * The initial child was created during the frame's WM_CREATE, before
+    * g_hMainWindow was assigned. Initialize its controls now that the
+    * frame exists, and focus its editor so typing works immediately.
+    */
+   {
+      HWND hActive = (HWND)SendMessage(g_hMDIClient,
+         WM_MDIGETACTIVE, 0, 0);
+      UpdateDocumentControls(g_hMainWindow, hActive);
+      if(hActive && !IsIconic(g_hMainWindow))
+      {
+         HWND hEdit = GetDlgItem(hActive, IDC_CHILD_EDIT);
+         if(hEdit)
+            SetFocus(hEdit);
+      }
+   }
 
    while(GetMessage(&Msg, NULL, 0, 0))
    {
@@ -498,34 +563,17 @@ LRESULT CALLBACK MDIChildWndProc(HWND hwnd, UINT Message, WPARAM wParam,
       break;
       case WM_MDIACTIVATE:
       {
-         HMENU hMenu, hFileMenu;
-         BOOL EnableFlag;
-         char szFileName[MAX_PATH];
-
-         hMenu = GetMenu(g_hMainWindow);
-         if(hwnd == (HWND)lParam){      //being activated
-            EnableFlag = TRUE;
+         /*
+          * Only the newly active child updates the shared controls.
+          * The old child's deactivation must not gray the frame menu
+          * after the new child has already enabled it.
+          */
+         if(hwnd == (HWND)lParam)
+         {
+            HWND hFrame = GetParent(GetParent(hwnd));
+            if(hFrame)
+               UpdateDocumentControls(hFrame, hwnd);
          }
-         else{
-            EnableFlag = FALSE;    //being de-activated
-         }
-         EnableMenuItem(hMenu, 1, MF_BYPOSITION | (EnableFlag ? MF_ENABLED : MF_GRAYED));
-         EnableMenuItem(hMenu, 2, MF_BYPOSITION | (EnableFlag ? MF_ENABLED : MF_GRAYED));
-
-         hFileMenu = GetSubMenu(hMenu, 0);
-         EnableMenuItem(hFileMenu, CM_FILE_SAVE, MF_BYCOMMAND | (EnableFlag ? MF_ENABLED : MF_GRAYED));
-         EnableMenuItem(hFileMenu, CM_FILE_SAVEAS, MF_BYCOMMAND | (EnableFlag ? MF_ENABLED : MF_GRAYED));
-
-         DrawMenuBar(g_hMainWindow);
-
-         SendMessage(g_hToolBar, TB_ENABLEBUTTON, CM_FILE_SAVE, MAKELONG(EnableFlag, 0));
-         SendMessage(g_hToolBar, TB_ENABLEBUTTON, CM_EDIT_UNDO, MAKELONG(EnableFlag, 0));
-         SendMessage(g_hToolBar, TB_ENABLEBUTTON, CM_EDIT_CUT, MAKELONG(EnableFlag, 0));
-         SendMessage(g_hToolBar, TB_ENABLEBUTTON, CM_EDIT_COPY, MAKELONG(EnableFlag, 0));
-         SendMessage(g_hToolBar, TB_ENABLEBUTTON, CM_EDIT_PASTE, MAKELONG(EnableFlag, 0));
-
-         GetWindowText(hwnd, szFileName, MAX_PATH);
-         SendMessage(g_hStatusBar, SB_SETTEXT, 0, (LPARAM)(EnableFlag ? szFileName : ""));
       }
       break;
       case WM_SETFOCUS:
