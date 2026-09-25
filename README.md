@@ -5,18 +5,7 @@ Created in Dev-C++ 4.9.9.2.
 
 <img width="1440" height="780" alt="WRITEWORD" src="https://github.com/user-attachments/assets/93ca77fc-222d-44ed-a176-c466c845b2ca" />
 
-## Building from source (Dev-C++)
-
-Open `MDIApp/MdiApp.dev` in Dev-C++ and select **Execute > Rebuild All**.
-Run the newly generated `MDIApp/WriteWord.exe`. The formerly committed
-`WriteWord.exe`, `MdiApp.exe`, `mdi_unit.o`, and
-`MdiApp_private.res` were stale build artifacts: the checked-in
-object/resource files predated the large-text and Select All changes.
-Those old binaries and intermediates have been removed from Git so a
-fresh checkout cannot accidentally use the original menu. The resulting
-`WriteWord.exe` can be committed separately after building and testing.
-
-## Editing large documents
+## Update for version 2: Editing large documents
 
 WriteWord uses the Windows Rich Edit 2.0 control in **plain-text mode**.
 It streams text files when opening and saving, so files no longer need a
@@ -24,14 +13,3 @@ second document-sized buffer. The old EDIT control's small default input
 limit is removed; the remaining upper bound is the Rich Edit control's
 signed 32-bit text range (approximately 2 GB of text) and available system
 memory. Files larger than the supported range are rejected, not truncated.
-
-**Ctrl+A** or **Edit > Select All** selects all the text in the active MDI
-document. Each MDI window has its own independent selection.
-
-### Manual checks
-
-1. Open a document larger than 64 KB, edit it, save it, then reopen it.
-2. With two document windows open, press Ctrl+A in one; only its text should
-   be selected. Check Edit > Select All and Ctrl+C after selecting.
-3. Save and reopen an empty document, then repeat with a multiline document.
-4. Verify the original Cut, Copy, Paste, Undo and MDI window commands.
