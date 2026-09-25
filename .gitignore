@@ -1,0 +1,6 @@
+# Dev-C++ intermediate objects and resources (must be rebuilt from source)
+MDIApp/*.o
+MDIApp/*.res
+MDIApp/MdiApp.exe
+
+# Keep WriteWord.exe eligible for separate, tested binary releases.
