@@ -70,13 +70,16 @@ BOOL LoadFile(HWND hEdit, LPSTR pszFileName)
    BOOL bSuccess = FALSE;
    if(hFile != INVALID_HANDLE_VALUE)
    {
-      LARGE_INTEGER fileSize;
+      DWORD fileSizeHigh = 0;
+      DWORD fileSizeLow = GetFileSize(hFile, &fileSizeHigh);
       /*
-       * Rich Edit uses signed 32-bit character positions. Reject files
-       * outside that range rather than silently displaying a truncated file.
+       * GetFileSize is declared by the older Win32 headers shipped with
+       * Dev-C++ 4.9.9.2. Reject files outside Rich Edit's signed 32-bit
+       * character range instead of silently loading a truncated document.
+       * A failed GetFileSize returns INVALID_FILE_SIZE (0xFFFFFFFF), which
+       * also fails the size check below.
        */
-      if(GetFileSizeEx(hFile, &fileSize) && fileSize.HighPart == 0 &&
-         fileSize.LowPart <= 0x7FFFFFFEUL)
+      if(fileSizeHigh == 0 && fileSizeLow <= 0x7FFFFFFEUL)
       {
          EDITSTREAM stream;
          ZeroMemory(&stream, sizeof(stream));
