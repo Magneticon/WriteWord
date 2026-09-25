@@ -26,8 +26,8 @@ clean: clean-custom
 $(BIN): $(OBJ)
 	$(CPP) $(LINKOBJ) -o "WriteWord.exe" $(LIBS)
 
-mdi_unit.o: mdi_unit.c mdi_unit.h
+mdi_unit.o: mdi_unit.c
 	$(CPP) -c mdi_unit.c -o mdi_unit.o $(CXXFLAGS)
 
-MdiApp_private.res: MdiApp_private.rc mdi_res.rc mdi_unit.h
+MdiApp_private.res: MdiApp_private.rc mdi_res.rc 
 	$(WINDRES) -i MdiApp_private.rc --input-format=rc -o MdiApp_private.res -O coff 
